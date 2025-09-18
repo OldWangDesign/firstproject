@@ -8,6 +8,7 @@ DeepSeek API客户端模块
 import json
 import requests
 import time
+import sys
 from typing import Dict, List, Any, Optional, Generator
 from dataclasses import dataclass
 
@@ -187,6 +188,114 @@ class DeepSeekClient:
             return None
         except Exception as e:
             print(f"❌ 未知错误: {e}")
+            return None
+    
+    def chat_stream(self, user_input: str) -> Optional[str]:
+        """
+        发送聊天请求并流式获取回复
+        
+        Args:
+            user_input: 用户输入
+            
+        Returns:
+            Optional[str]: AI回复内容，失败时返回None
+        """
+        try:
+            # 添加用户消息
+            self.add_user_message(user_input)
+            
+            # 准备请求数据
+            messages = [msg.to_dict() for msg in self.conversation_history]
+            
+            request_data = {
+                'model': self.model,
+                'messages': messages,
+                'max_tokens': self.max_tokens,
+                'temperature': self.temperature,
+                'stream': True
+            }
+            
+            # 发送请求
+            print("🤖 AI: ", end="", flush=True)
+            start_time = time.time()
+            
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=self.headers,
+                json=request_data,
+                timeout=self.timeout,
+                stream=True
+            )
+            
+            # 检查响应状态
+            if response.status_code != 200:
+                print("\n")
+                self._handle_api_error(response)
+                return None
+            
+            # 处理流式响应
+            full_content = ""
+            
+            for line in response.iter_lines():
+                if line:
+                    line_text = line.decode('utf-8')
+                    
+                    # 跳过非数据行
+                    if not line_text.startswith('data: '):
+                        continue
+                    
+                    # 提取数据部分
+                    data_text = line_text[6:]  # 移除 'data: ' 前缀
+                    
+                    # 检查是否为结束标记
+                    if data_text.strip() == '[DONE]':
+                        break
+                    
+                    try:
+                        # 解析JSON数据
+                        data = json.loads(data_text)
+                        
+                        # 提取内容
+                        if 'choices' in data and len(data['choices']) > 0:
+                            delta = data['choices'][0].get('delta', {})
+                            content = delta.get('content', '')
+                            
+                            if content:
+                                print(content, end="", flush=True)
+                                full_content += content
+                                
+                    except json.JSONDecodeError:
+                        # 忽略无法解析的行
+                        continue
+            
+            print()  # 换行
+            
+            end_time = time.time()
+            response_time = end_time - start_time
+            
+            if full_content:
+                # 添加助手回复到历史
+                self.add_assistant_message(full_content)
+                
+                # 显示响应时间
+                print(f"ℹ️ ⏱️ {response_time:.2f}s")
+                
+                return full_content
+            else:
+                print("❌ 未收到有效回复")
+                return None
+                
+        except requests.exceptions.Timeout:
+            print(f"\n❌ 请求超时 (>{self.timeout}秒)，请检查网络连接")
+            return None
+        except requests.exceptions.ConnectionError:
+            print("\n❌ 网络连接失败，请检查网络设置")
+            return None
+        except requests.exceptions.RequestException as e:
+            print(f"\n❌ 请求失败: {e}")
+            return None
+        except Exception as e:
+            print(f"\n❌ 未知错误: {e}")
             return None
     
     def _handle_api_error(self, response: requests.Response) -> None:

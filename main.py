@@ -219,14 +219,12 @@ class DeepSeekCLI:
                 if self.handle_command(user_input):
                     continue
                 
-                # 发送消息给AI
+                # 发送消息给AI (使用流式输出)
                 if self.api_client:
-                    print("\n🤖 AI: ", end="", flush=True)
-                    response = self.api_client.chat(user_input)
+                    print()  # 换行
+                    response = self.api_client.chat_stream(user_input)
                     
-                    if response:
-                        print(response)
-                    else:
+                    if not response:
                         print("抱歉，我现在无法回复。请稍后再试。")
                 else:
                     print("❌ API客户端未初始化")
